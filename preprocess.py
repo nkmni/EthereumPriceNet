@@ -2,17 +2,13 @@ import os
 import json
 import numpy as np
 from scipy import stats
+from utilities import Hyperparameters
 
 SCRIPT_DIR_PATH = os.path.dirname(__file__)
 DATA_DIR_REL_PATH = 'data/'
 RAW_DATA_DIR_REL_PATH = 'data/raw/'
 DATA_DIR_ABS_PATH = os.path.join(SCRIPT_DIR_PATH, DATA_DIR_REL_PATH)
 RAW_DATA_DIR_ABS_PATH = os.path.join(SCRIPT_DIR_PATH, RAW_DATA_DIR_REL_PATH)
-
-FFT_WINDOW_SIZE = 14
-SEQUENCE_LENGTH = 14
-PREDICTION_WINDOW_SIZE = 7
-TRAIN_SPLIT = 0.95
 
 
 def load_raw_data():
@@ -51,61 +47,42 @@ def load_raw_data():
     eth_daily_market_cap_data.sort(axis=0)
     eth_daily_price_data.sort(axis=0)
 
-    daily_avg_gas_limit_data = stats.zscore(daily_avg_gas_limit_data)
-    daily_avg_gas_price_data = stats.zscore(daily_avg_gas_price_data)
-    daily_gas_used_data = stats.zscore(daily_gas_used_data)
-    daily_txn_fee_data = stats.zscore(daily_txn_fee_data)
-    eth_daily_market_cap_data = stats.zscore(eth_daily_market_cap_data)
-    # eth_daily_price_data = stats.zscore(eth_daily_price_data) # DO NOT DO THIS
-
     return (daily_avg_gas_limit_data[:, 1], daily_avg_gas_price_data[:, 1], daily_gas_used_data[:, 1], daily_txn_fee_data[:, 1], eth_daily_market_cap_data[:, 1], eth_daily_price_data[:, 1])
 
 
-def get_price_ffts(eth_daily_price_data):
+def get_price_ffts(hps, eth_daily_price_data):
     windows = []
-    for i in range(0, eth_daily_price_data.shape[0] - FFT_WINDOW_SIZE + 1):
-        window = eth_daily_price_data[i:i + FFT_WINDOW_SIZE]
+    for i in range(0, eth_daily_price_data.shape[0] - hps.fft_window_size + 1):
+        window = eth_daily_price_data[i:i + hps.fft_window_size]
         windows += [stats.zscore(window)]
     windows = np.vstack(windows)
     return np.abs(np.fft.fft(windows))
 
 
-def get_preprocessed_data(full_sequence):
-    windows, y = [], []
-    for i in range(0, full_sequence.shape[0] - SEQUENCE_LENGTH + 1 - PREDICTION_WINDOW_SIZE):
-        window = full_sequence[i:i + SEQUENCE_LENGTH, :]
+def get_preprocessed_data(hps, full_sequence):
+    windows, prices, y = [], [], []
+    for i in range(0, full_sequence.shape[0] - hps.sequence_length + 1 - hps.prediction_window_size):
+        window = full_sequence[i:i + hps.sequence_length, :]
         windows += [window]
-        prediction_window = full_sequence[i + SEQUENCE_LENGTH:i + SEQUENCE_LENGTH + PREDICTION_WINDOW_SIZE, 5]
+        prices += [window[:, 5]]
+        prediction_window = full_sequence[i + hps.sequence_length:i + hps.sequence_length + hps.prediction_window_size, 5]
         y += [[np.amin(prediction_window), np.mean(prediction_window), np.amax(prediction_window)]]
-    return (np.stack(windows), np.array(y))
-
-
-def split_data(data, y):
-    train_index = int(TRAIN_SPLIT * data.shape[0])
-    # dev_index = train_index + int((data.shape[0] - train_index) / 2) + 1
-    # return (data[:train_index], data[train_index:dev_index], data[dev_index:], y[:train_index], y[train_index:dev_index], y[dev_index:])
-    return (data[:train_index], data[train_index:], y[:train_index], y[train_index:])
+    return (np.stack(windows), np.stack(prices), np.array(y))
 
 
 if __name__ == '__main__':
+    hps = Hyperparameters()
+
     raw_data = load_raw_data()
     eth_daily_price_data = raw_data[-1]
-    price_ffts = get_price_ffts(eth_daily_price_data)
-    full_sequence = np.concatenate((np.stack(raw_data, axis=1)[FFT_WINDOW_SIZE - 1:, :], price_ffts), axis=1)
-    preprocessed_data, y = get_preprocessed_data(full_sequence)
-    # X_train, X_dev, X_test, y_train, y_dev, y_test = split_data(preprocessed_data, y)
-    X_train, X_dev, y_train, y_dev = split_data(preprocessed_data, y)
+    price_ffts = get_price_ffts(hps, eth_daily_price_data)
+    full_sequence = np.concatenate((np.stack(raw_data, axis=1)[hps.fft_window_size - 1:, :], price_ffts), axis=1)
+    X, X_prices, y = get_preprocessed_data(hps, full_sequence)
 
-    print('X_train.shape = ', X_train.shape)
-    print('y_train.shape = ', y_train.shape)
-    print('X_dev.shape   = ', X_dev.shape)
-    print('y_dev.shape   = ', y_dev.shape)
-    # print('X_test.shape  = ', X_test.shape)
-    # print('y_test.shape  = ', y_test.shape)
+    print('X.shape = ', X.shape)
+    print('X_prices.shape = ', X_prices.shape)
+    print('y.shape = ', y.shape)
 
-    np.save(open(os.path.join(DATA_DIR_ABS_PATH, 'X_train.npy'), 'wb'), X_train)
-    np.save(open(os.path.join(DATA_DIR_ABS_PATH, 'y_train.npy'), 'wb'), y_train)
-    np.save(open(os.path.join(DATA_DIR_ABS_PATH, 'X_dev.npy'), 'wb'), X_dev)
-    np.save(open(os.path.join(DATA_DIR_ABS_PATH, 'y_dev.npy'), 'wb'), y_dev)
-    # np.save(open(os.path.join(DATA_DIR_ABS_PATH, 'X_test.npy'), 'wb'), X_test)
-    # np.save(open(os.path.join(DATA_DIR_ABS_PATH, 'y_test.npy'), 'wb'), y_test)
+    np.save(os.path.join(DATA_DIR_ABS_PATH, 'X.npy'), X)
+    np.save(os.path.join(DATA_DIR_ABS_PATH, 'X_prices.npy'), X_prices)
+    np.save(os.path.join(DATA_DIR_ABS_PATH, 'y.npy'), y)

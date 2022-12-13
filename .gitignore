@@ -1,3 +1,4 @@
 .vscode
 .venv
 scraper.py
+__pycache__
