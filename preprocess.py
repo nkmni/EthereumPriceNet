@@ -47,6 +47,8 @@ def load_raw_data():
     eth_daily_market_cap_data.sort(axis=0)
     eth_daily_price_data.sort(axis=0)
 
+    print(daily_avg_gas_limit_data.shape)
+
     return (daily_avg_gas_limit_data[:, 1], daily_avg_gas_price_data[:, 1], daily_gas_used_data[:, 1], daily_txn_fee_data[:, 1], eth_daily_market_cap_data[:, 1], eth_daily_price_data[:, 1])
 
 
@@ -60,14 +62,17 @@ def get_price_ffts(hps, eth_daily_price_data):
 
 
 def get_preprocessed_data(hps, full_sequence):
-    windows, prices, y = [], [], []
+    windows, y = [], []
     for i in range(0, full_sequence.shape[0] - hps.sequence_length + 1 - hps.prediction_window_size):
         window = full_sequence[i:i + hps.sequence_length, :]
         windows += [window]
-        prices += [window[:, 5]]
         prediction_window = full_sequence[i + hps.sequence_length:i + hps.sequence_length + hps.prediction_window_size, 5]
-        y += [[np.amin(prediction_window), np.mean(prediction_window), np.amax(prediction_window)]]
-    return (np.stack(windows), np.stack(prices), np.array(y))
+        y += [[
+            100*(np.amin(prediction_window)/window[-1, 5]-1),
+            100*(np.mean(prediction_window)/window[-1, 5]-1),
+            100*(np.amax(prediction_window)/window[-1, 5]-1)
+        ]]
+    return (np.stack(windows), np.array(y))
 
 
 if __name__ == '__main__':
@@ -77,12 +82,10 @@ if __name__ == '__main__':
     eth_daily_price_data = raw_data[-1]
     price_ffts = get_price_ffts(hps, eth_daily_price_data)
     full_sequence = np.concatenate((np.stack(raw_data, axis=1)[hps.fft_window_size - 1:, :], price_ffts), axis=1)
-    X, X_prices, y = get_preprocessed_data(hps, full_sequence)
+    X, y = get_preprocessed_data(hps, full_sequence)
 
     print('X.shape = ', X.shape)
-    print('X_prices.shape = ', X_prices.shape)
     print('y.shape = ', y.shape)
 
-    np.save(os.path.join(DATA_DIR_ABS_PATH, 'X.npy'), X)
-    np.save(os.path.join(DATA_DIR_ABS_PATH, 'X_prices.npy'), X_prices)
-    np.save(os.path.join(DATA_DIR_ABS_PATH, 'y.npy'), y)
+    #np.save(os.path.join(DATA_DIR_ABS_PATH, 'X.npy'), X)
+    #np.save(os.path.join(DATA_DIR_ABS_PATH, 'y.npy'), y)

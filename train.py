@@ -15,56 +15,73 @@ RESULTS_DIR_ABS_PATH = os.path.join(SCRIPT_DIR_PATH, RESULTS_DIR_REL_PATH)
 
 def load_data():
     X = np.load(os.path.join(DATA_DIR_ABS_PATH, 'X.npy'))
-    X_prices = np.load(os.path.join(DATA_DIR_ABS_PATH, 'X_prices.npy'))
     y = np.load(os.path.join(DATA_DIR_ABS_PATH, 'y.npy'))
-    return (X, X_prices, y)
+    return (X, y)
 
 
 def generate_model(hps):
-    lstm_inputs = tf.keras.Input(shape=(hps.sequence_length, 6 + hps.fft_window_size), name='lstm_inputs')
-    lstm1 = tf.keras.layers.LSTM(units=hps.lstm1_units, return_sequences=True)(lstm_inputs)
-    lstm2 = tf.keras.layers.LSTM(units=hps.lstm2_units)(lstm1)
+    inputs = tf.keras.Input(shape=(hps.sequence_length, 6 + hps.fft_window_size), name='lstm_inputs')
+    batch_norm = tf.keras.layers.BatchNormalization()(inputs)
+    lstm1 = tf.keras.layers.LSTM(units=hps.lstm1_units, return_sequences=True, kernel_regularizer=hps.lstm1_regularizer)(batch_norm)
+    lstm2 = tf.keras.layers.LSTM(units=hps.lstm2_units, kernel_regularizer=hps.lstm2_regularizer)(lstm1)
+    dense = tf.keras.layers.Dense(units=hps.dense_units, activation='tanh', kernel_regularizer=hps.dense_regularizer)(lstm2)
+    outputs = tf.keras.layers.Dense(units=3)(dense)
 
-    prices = tf.keras.Input(shape=(hps.sequence_length,), name='prices')
-    concat = tf.keras.layers.concatenate([lstm2, prices])
-    dense = tf.keras.layers.Dense(units=hps.dense_units)(concat)
-    leaky_relu = tf.keras.layers.LeakyReLU()(dense)
-    outputs = tf.keras.layers.Dense(units=3)(leaky_relu)
-
-    model = tf.keras.Model(inputs=[lstm_inputs, prices], outputs=outputs)
+    model = tf.keras.Model(inputs=inputs, outputs=outputs)
     model.compile(loss='mse', optimizer=tf.keras.optimizers.Adam(learning_rate=hps.learning_rate), metrics=['mae'])
     return model
 
 
 def draw_results(y, predictions, title):
     plt.figure()
-    plt.plot(y[:, 0], label='min (actual)')
-    plt.plot(y[:, 1], label='avg (actual)')
-    plt.plot(y[:, 2], label='max (actual)')
-    plt.plot(predictions[:, 0], label='min (predicted)')
-    plt.plot(predictions[:, 1], label='avg (predicted)')
-    plt.plot(predictions[:, 2], label='max (predicted)')
+    plt.plot(y[:, 0], label='actual')
+    plt.plot(predictions[:, 0], label='predicted')
     plt.xlabel('day')
-    plt.ylabel('price')
-    plt.title(title)
+    plt.ylabel('%% change in price')
+    plt.title(title + ' (min)')
     plt.legend()
-    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, title + '.png'), dpi=600, format='png')
+    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, title + '_min.png'), dpi=600, format='png')
+
+    plt.figure()
+    plt.plot(y[:, 1], label='actual')
+    plt.plot(predictions[:, 1], label='predicted')
+    plt.xlabel('day')
+    plt.ylabel('%% change in price')
+    plt.title(title + ' (avg)')
+    plt.legend()
+    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, title + '_avg.png'), dpi=600, format='png')
+
+    plt.figure()
+    plt.plot(y[:, 2], label='actual')
+    plt.plot(predictions[:, 2], label='predicted')
+    plt.xlabel('day')
+    plt.ylabel('%% change in price')
+    plt.title(title + ' (max)')
+    plt.legend()
+    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, title + '_max.png'), dpi=600, format='png')
 
 
 def draw_history(history):
     plt.figure()
     plt.plot(history.history['loss'], label='loss')
+    plt.xlabel('epoch')
+    plt.ylabel('loss (mse)')
+    plt.title('loss')
+    plt.legend()
+    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, 'loss.png'), dpi=600, format='png')
+
+    plt.figure()
     plt.plot(history.history['val_loss'], label='val loss')
     plt.xlabel('epoch')
     plt.ylabel('loss (mse)')
-    plt.title('history')
+    plt.title('val loss')
     plt.legend()
-    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, 'history.png'), dpi=600, format='png')
+    plt.savefig(os.path.join(RESULTS_DIR_ABS_PATH, 'val_loss.png'), dpi=600, format='png')
 
 
-def split_data(hps, X, X_prices, y):
+def split_data(hps, X, y):
     index = int(hps.train_split * X.shape[0])
-    return (X[:index], X_prices[:index], y[:index], X[index:], X_prices[index:], y[index:])
+    return (X[:index], y[:index], X[index:], y[index:])
 
 
 if __name__ == '__main__':
@@ -73,8 +90,8 @@ if __name__ == '__main__':
     hps.save(os.path.join(RESULTS_DIR_ABS_PATH, 'hyperparameters.json'))
 
     with open(os.path.join(RESULTS_DIR_ABS_PATH, 'output.txt'), 'w') as f:
-        X, X_prices, y = load_data()
-        X_train, X_train_prices, y_train, X_val, X_val_prices, y_val = split_data(hps, X, X_prices, y)
+        X, y = load_data()
+        X_train, y_train, X_val, y_val = split_data(hps, X, y)
 
         model = generate_model(hps)
         tf.keras.utils.plot_model(model, os.path.join(RESULTS_DIR_ABS_PATH, 'model.png'), show_shapes=True)
@@ -84,26 +101,30 @@ if __name__ == '__main__':
             model.load_weights(sys.argv[1])
 
         history = model.fit(
-            {'lstm_inputs': X_train, 'prices': X_train_prices},
+            X_train,
             y_train,
             epochs=hps.epochs,
             batch_size=hps.batch_size,
-            validation_data=({'lstm_inputs': X_val, 'prices': X_val_prices}, y_val)
+            validation_data=(X_val, y_val)
         )
 
         model.save_weights(os.path.join(RESULTS_DIR_ABS_PATH, 'weights.h5'))
 
-        train_predictions = model.predict([X_train, X_train_prices])
-        val_predictions = model.predict([X_val, X_val_prices])
+        train_predictions = model.predict(X_train)
+        val_predictions = model.predict(X_val)
 
         draw_results(y_train, train_predictions, 'train')
         draw_results(y_val, val_predictions, 'validation')
         draw_history(history)
 
-        f.write('    loss: {}\n     mae: {}\nval loss: {}\n val mae: {}\n'.format(
+        f.write('loss: {}\nmae: {}\nval loss: {}\nval mae: {}\n'.format(
             history.history['loss'][-1],
             history.history['mae'][-1],
             history.history['val_loss'][-1],
             history.history['val_mae'][-1]
         ))
-        f.write(' val rho: {}'.format(np.corrcoef(y_val, val_predictions)[0, 1]))
+        f.write('val rho (min): {}\nval rho (avg): {}\nval rho (max): {}'.format(
+            np.corrcoef(y_val[:, 0], val_predictions[:, 0])[0, 1],
+            np.corrcoef(y_val[:, 1], val_predictions[:, 1])[0, 1],
+            np.corrcoef(y_val[:, 2], val_predictions[:, 2])[0, 1]
+        ))
