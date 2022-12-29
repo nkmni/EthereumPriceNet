@@ -40,13 +40,6 @@ def load_raw_data():
     eth_daily_market_cap_data = np.asarray([[d['unixTimeStamp'], d['marketCap']] for d in json_eth_daily_market_cap['result']][8:], dtype=np.float64)
     eth_daily_price_data = np.asarray([[d['unixTimeStamp'], d['value']] for d in json_eth_daily_price['result']][8:], dtype=np.float64)
 
-    daily_avg_gas_limit_data.sort(axis=0)
-    daily_avg_gas_price_data.sort(axis=0)
-    daily_gas_used_data.sort(axis=0)
-    daily_txn_fee_data.sort(axis=0)
-    eth_daily_market_cap_data.sort(axis=0)
-    eth_daily_price_data.sort(axis=0)
-
     print(daily_avg_gas_limit_data.shape)
 
     return (daily_avg_gas_limit_data[:, 1], daily_avg_gas_price_data[:, 1], daily_gas_used_data[:, 1], daily_txn_fee_data[:, 1], eth_daily_market_cap_data[:, 1], eth_daily_price_data[:, 1])
@@ -87,5 +80,5 @@ if __name__ == '__main__':
     print('X.shape = ', X.shape)
     print('y.shape = ', y.shape)
 
-    #np.save(os.path.join(DATA_DIR_ABS_PATH, 'X.npy'), X)
-    #np.save(os.path.join(DATA_DIR_ABS_PATH, 'y.npy'), y)
+    np.save(os.path.join(DATA_DIR_ABS_PATH, 'X.npy'), X)
+    np.save(os.path.join(DATA_DIR_ABS_PATH, 'y.npy'), y)
